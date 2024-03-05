@@ -10,6 +10,8 @@ import random # we'll be using this to randomise monomer positions
 
 import networkx as nx  # we'll be using this to define halves of the molecule during dihedral shuffling
 
+# by Ada Quinn, University of Queensland
+
 # this script takes monomer structures and extends them into a polymer by fitting to dummy atoms on each monomer
 # then it generates conformations by shuffling dihedrals
 
@@ -259,6 +261,7 @@ def genconf(pol, # universe containing raw polymer conf with bond information
 
 
 def shuffle(u,sel='name CA C',mult=3):
+    # based on a tutorial by richard j gowers; http://www.richardjgowers.com/2017/08/14/rotating.html
     pair = u.select_atoms(sel)
     resmin = pair.residues.resids.min()
     resmax = pair.residues.resids.max()
