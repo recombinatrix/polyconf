@@ -112,8 +112,8 @@ def first (monomer):
 
 def extend (u,monomer,n,rot=180):
     # extend a polymer u by a monomer u_, by fitting the backbone atoms (CMA_n+1, CN_n+1) to (CA_n,C_n)
-    # then rotate the new monomer around CA-C dihedral by rot degrees
-  
+    # rot is no longer used
+    
     CA = u.select_atoms('name CA').positions[-1]
     C = u.select_atoms('name C').positions[-1]
 
