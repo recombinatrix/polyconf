@@ -1,0 +1,6 @@
+numpy
+MDAnalysis
+networkx
+random
+tdqm
+math
