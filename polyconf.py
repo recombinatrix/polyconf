@@ -102,7 +102,7 @@ def extend (u,monomer,n,rot=180):
 
 def genconf(pol, # universe containing raw polymer conf with bond information
     n=5, # number of conformations to generate 
-    cutoff=0.3, # minimum atom/atom distance for clash checker.  This is crude but should be good enough for EM
+    cutoff=0.5, # minimum atom/atom distance for clash checker.  This is crude but should be good enough for EM
     limit=20, # how many times to generate a monomer conformation without clashes, before giving up
     verbose=False,
     fname='polymer_conf',
@@ -296,9 +296,9 @@ if __name__ == "__main__":
     df = pd.read_csv(args.monomers)
     df.set_index('resname',inplace=True)
     if args.count:
-    df['count'] = df['count'].astype(int) 
+        df['count'] = df['count'].astype(int) 
     if args.frac:
-    df['frac'] = df['frac'].astype(float) 
+        df['frac'] = df['frac'].astype(float) 
 
     mdict = df.to_dict()
 
