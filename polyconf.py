@@ -1,3 +1,5 @@
+#!/usr/bin/env python 
+ 
 import numpy as np
 import pandas as pd
 from tqdm import tqdm  # progress bar
@@ -34,39 +36,6 @@ import networkx as nx  # we'll be using this to define halves of the molecule du
 # =============================================================================
 # ============================= END TO DO LIST ================================
 # =============================================================================
-
-import argparse
-import sys
-
-parser = argparse.ArgumentParser()
-parser.add_argument("--name", default='polymer', help='system name string, used for filenames')
-parser.add_argument("--nconfs", default=3)
-group=parser.add_mutually_exclusive_group(required=True)
-group.add_argument('--count', action='store_true') # specifies monomers are given by count
-group.add_argument('--frac', action='store_true') # specifies monomers are as fractions, requires a total length
-parser.add_argument('--length', type=int,required='--frac' in sys.argv) # total polymer legnth, only required if --frac is set
-parser.add_argument("--monomers",type=str,default='monomers.csv',help='path to csv describing monomers, expected columns are \'resname\', \'path\', \'position\', and at least one of \'count\' and \'frac\'') 
-
-# assumes monomer resnames are four letter codes, with the final letter either M for middle, T for terminator, or I for initiator)
-
-args = parser.parse_args()
-
-fname = '_'.join(args.name.split(' '))
-nconfs = int(args.nconfs)
-
-df = pd.read_csv(args.monomers)
-df.set_index('resname',inplace=True)
-if args.count:
-   df['count'] = df['count'].astype(int) 
-if args.frac:
-   df['frac'] = df['frac'].astype(float) 
-
-mdict = df.to_dict()
-
-# build iterator lists 
-
-monomers = [x for x in mdict['path'].keys()]
-middle = [x for x in monomers if mdict['position'][x] == 'middle']
 
 def load_mon(monomer):
     mon = mda.Universe(mdict['path'][monomer])
@@ -303,21 +272,57 @@ def gencomp(mdict):
     poly[-1] = poly[-1][:-1] + 'T' # convert last monomer from middle to terminator
     return(poly)
 
-poly = gencomp(mdict)
-# now, use the composition to build the polymer
 
-for i in tqdm(range(len(poly)),desc='Building initial polymer geometry'):
-    #print(poly[i],i)
+if __name__ == "__main__":
+    import argparse
+    import sys
 
-    if i == 0:
-        pol = first(poly[i])
-        #print( pol.residues.resids)
-        #print(pol.select_atoms('resid 1 and name CA').positions[0])
-    else:
-        rot = (i*45)%360 # not used anymore; replaced with genconf shuffling
-        pol = extend(pol,poly[i],n=i,rot=rot)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--name", default='polymer', help='system name string, used for filenames')
+    parser.add_argument("--nconfs", default=3)
+    group=parser.add_mutually_exclusive_group(required=True)
+    group.add_argument('--count', action='store_true') # specifies monomers are given by count
+    group.add_argument('--frac', action='store_true') # specifies monomers are as fractions, requires a total length
+    parser.add_argument('--length', type=int,required='--frac' in sys.argv) # total polymer legnth, only required if --frac is set
+    parser.add_argument("--monomers",type=str,default='monomers.csv',help='path to csv describing monomers, expected columns are \'resname\', \'path\', \'position\', and at least one of \'count\' and \'frac\'') 
+
+    # assumes monomer resnames are four letter codes, with the final letter either M for middle, T for terminator, or I for initiator)
+
+    args = parser.parse_args()
+
+    fname = '_'.join(args.name.split(' '))
+    nconfs = int(args.nconfs)
+
+    df = pd.read_csv(args.monomers)
+    df.set_index('resname',inplace=True)
+    if args.count:
+    df['count'] = df['count'].astype(int) 
+    if args.frac:
+    df['frac'] = df['frac'].astype(float) 
+
+    mdict = df.to_dict()
+
+    # build iterator lists 
+
+    monomers = [x for x in mdict['path'].keys()]
+    middle = [x for x in monomers if mdict['position'][x] == 'middle']
 
 
-save(cleanup(pol),f'{fname}_linear.gro')
+    poly = gencomp(mdict)
+    # now, use the composition to build the polymer
 
-genconf(pol,n=nconfs,fname=fname,verbose=False)
+    for i in tqdm(range(len(poly)),desc='Building initial polymer geometry'):
+        #print(poly[i],i)
+
+        if i == 0:
+            pol = first(poly[i])
+            #print( pol.residues.resids)
+            #print(pol.select_atoms('resid 1 and name CA').positions[0])
+        else:
+            rot = (i*45)%360 # not used anymore; replaced with genconf shuffling
+            pol = extend(pol,poly[i],n=i,rot=rot)
+
+
+    save(cleanup(pol),f'{fname}_linear.gro')
+
+    genconf(pol,n=nconfs,fname=fname,verbose=False)
