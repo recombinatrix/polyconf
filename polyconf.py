@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 from tqdm import tqdm  # progress bar
 
 import MDAnalysis as mda
@@ -35,78 +36,45 @@ import networkx as nx  # we'll be using this to define halves of the molecule du
 # =============================================================================
 
 import argparse
+import sys
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--name", default='polymer', help='system name string, used for filenames')
 parser.add_argument("--nconfs", default=3)
+group=parser.add_mutually_exclusive_group(required=True)
+group.add_argument('--count', action='store_true') # specifies monomers are given by count
+group.add_argument('--frac', action='store_true') # specifies monomers are as fractions, requires a total length
+parser.add_argument('--length', type=int,required='--frac' in sys.argv) # total polymer legnth, only required if --frac is set
+parser.add_argument("--monomers",type=str,default='monomers.csv',help='path to csv describing monomers, expected columns are \'resname\', \'path\', \'position\', and at least one of \'count\' and \'frac\'') 
+
+# assumes monomer resnames are four letter codes, with the final letter either M for middle, T for terminator, or I for initiator)
+
 args = parser.parse_args()
 
 fname = '_'.join(args.name.split(' '))
 nconfs = int(args.nconfs)
 
+df = pd.read_csv(args.monomers)
+df.set_index('resname',inplace=True)
+if args.count:
+   df['count'] = df['count'].astype(int) 
+if args.frac:
+   df['frac'] = df['frac'].astype(float) 
 
-# load monomer template universes
+mdict = df.to_dict()
 
-# INITIATORS
+# build iterator lists 
 
-CODI = mda.Universe('02_ATB_raw_output/renamed/pdb/CODI_bonds.pdb')
-COLI = mda.Universe('02_ATB_raw_output/renamed/pdb/COLI_bonds.pdb')
-P4DI = mda.Universe('02_ATB_raw_output/renamed/pdb/P4DI_bonds.pdb')
-P4LI = mda.Universe('02_ATB_raw_output/renamed/pdb/P4LI_bonds.pdb')
-P5DI = mda.Universe('02_ATB_raw_output/renamed/pdb/P5DI_bonds.pdb')
-P5LI = mda.Universe('02_ATB_raw_output/renamed/pdb/P5LI_bonds.pdb')
+monomers = [x for x in mdict['path'].keys()]
+middle = [x for x in monomers if mdict['position'][x] == 'middle']
 
-# EXTENDERS
-
-CODM = mda.Universe('02_ATB_raw_output/renamed/pdb/CODM_bonds.pdb')
-COLM = mda.Universe('02_ATB_raw_output/renamed/pdb/COLM_bonds.pdb')
-P4DM = mda.Universe('02_ATB_raw_output/renamed/pdb/P4DM_bonds_backbone.pdb')
-P4LM = mda.Universe('02_ATB_raw_output/renamed/pdb/P4LM_bonds_backbone.pdb')
-P5DM = mda.Universe('02_ATB_raw_output/renamed/pdb/P5DM_bonds_backbone.pdb')
-P5LM = mda.Universe('02_ATB_raw_output/renamed/pdb/P5LM_bonds_backbone.pdb')
-
-# TERMINATORS
-
-CODT = mda.Universe('02_ATB_raw_output/renamed/pdb/CODT_bonds.pdb')
-COLT = mda.Universe('02_ATB_raw_output/renamed/pdb/COLT_bonds.pdb')
-P4DT = mda.Universe('02_ATB_raw_output/renamed/pdb/P4DT_bonds.pdb')
-P4LT = mda.Universe('02_ATB_raw_output/renamed/pdb/P4LT_bonds.pdb')
-P5DT = mda.Universe('02_ATB_raw_output/renamed/pdb/P5DT_bonds.pdb')
-P5LT = mda.Universe('02_ATB_raw_output/renamed/pdb/P5LT_bonds.pdb')
-
-monomers = {
-    'CODI' : CODI ,
-    'COLI' : COLI ,
-    'P4DI' : P4DI ,
-    'P4LI' : P4LI ,
-    'P5DI' : P5DI ,
-    'P5LI' : P5LI ,
-    'CODM' : CODM ,
-    'COLM' : COLM ,
-    'P4DM' : P4DM ,
-    'P4LM' : P4LM ,
-    'P5DM' : P5DM ,
-    'P5LM' : P5LM ,
-    'CODT' : CODT ,
-    'COLT' : COLT ,
-    'P4DT' : P4DT ,
-    'P4LT' : P4LT ,
-    'P5DT' : P5DT ,
-    'P5LT' : P5LT ,
-}
-
-middle = [
-    'CODM',
-    'COLM',
-    'P4DM',
-    'P4LM',
-    'P5DM',
-    'P5LM',
-]
-
+def load_mon(monomer):
+    mon = mda.Universe(mdict['path'][monomer])
+    return(mon)
 
 def first (monomer):
     # build the first monomer of a polymer
-    u = monomer.copy()
+    u = load_mon(monomer)
     u.residues.resids = 1
     return(u)
 
@@ -117,7 +85,7 @@ def extend (u,monomer,n,rot=180):
     CA = u.select_atoms('name CA').positions[-1]
     C = u.select_atoms('name C').positions[-1]
 
-    u_ = monomer.copy()
+    u_ = load_mon(monomer)
     u_.residues.resids = n+1
 
     CMA = u_.select_atoms(f' name CMA').positions[0]
@@ -248,7 +216,7 @@ def genconf(pol, # universe containing raw polymer conf with bond information
 
             first=False # used for if you want to do -CA C shuffling
 
-        save(conf,f'{fname}_{rep}.gro')
+        save(cleanup(conf),f'{fname}_{rep}.gro')
 
     print('\n\nFinished generating conformations\n\n')
 
@@ -312,37 +280,42 @@ def crudesave(u,fname='out.gro'):
 
 # first, make a polymer with a known monomer composition, but with the monomers in order
 
-polycomp = []
+def gencomp(mdict):
+    polycomp = []
 
-for m in middle:
+    if args.count:
+        for m in middle:
+            rcount = mdict['count'][m]
+            for i in range(rcount):
+                polycomp += [m] # build a list with one of each monomer unit present in the final polymer
 
-    if m in ['CODM','COLM']:
-        count = 15 # how many of each carboxyethyl monomer enantiomer
-    else: count = 42 # how many of each PEG monomer enantiomer
+    if args.length:
+        for m in middle:
+            rfrac = int(args.length * mdict['frac'][m]) # fraction of total length that is monomer x
+            for i in range(rfrac):
+                polycomp += [m] # build a list with one of each monomer unit present in the final polymer
+    # then randomise positions of monomers
 
-    for i in range(count):
-        polycomp += [m] # build a list with one of each monomer unit present in the final polymer
+    poly=random.sample(polycomp,len(polycomp)) 
 
-# then randomise positions of monomers
+    poly[0] = poly[0][:-1] + 'I' # convert first monomer from middle to initiator
 
-poly=random.sample(polycomp,len(polycomp)) 
+    poly[-1] = poly[-1][:-1] + 'T' # convert last monomer from middle to terminator
+    return(poly)
 
-poly[0] = poly[0][:-1] + 'I' # convert first monomer from middle to initiator
-
-poly[-1] = poly[-1][:-1] + 'T' # convert last monomer from middle to terminator
-
+poly = gencomp(mdict)
 # now, use the composition to build the polymer
 
 for i in tqdm(range(len(poly)),desc='Building initial polymer geometry'):
     #print(poly[i],i)
 
     if i == 0:
-        pol = first(monomers[poly[i]])
+        pol = first(poly[i])
         #print( pol.residues.resids)
         #print(pol.select_atoms('resid 1 and name CA').positions[0])
     else:
         rot = (i*45)%360 # not used anymore; replaced with genconf shuffling
-        pol = extend(pol,monomers[poly[i]],n=i,rot=rot)
+        pol = extend(pol,poly[i],n=i,rot=rot)
 
 
 save(cleanup(pol),f'{fname}_linear.gro')
