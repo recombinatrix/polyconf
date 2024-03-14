@@ -141,13 +141,14 @@ def genconf(pol, # universe containing raw polymer conf with bond information
 
             # oh this is failing because of the missing dummy atoms
             # ok leave them in for now, cut when you save it
+            mult=3
             done = False
             tries = 0
             name = conf.select_atoms(f'resid {i}').residues.resnames[0]
             while not done:
-                conf,clash1 = shuffle(conf, sel=f"resid {i} and name CA CB",   mult=6 ) 
-                conf,clash2 = shuffle(conf, sel=f"resid {i} and name OG1 C1A",  ) 
-                conf,clash3 = shuffle(conf, sel=f"resid {i} and name C1A C1B",  ) 
+                conf,clash1 = shuffle(conf, sel=f"resid {i} and name CA CB",   mult=mult*2 ) 
+                conf,clash2 = shuffle(conf, sel=f"resid {i} and name OG1 C1A", mult=mult ) 
+                conf,clash3 = shuffle(conf, sel=f"resid {i} and name C1A C1B", mult=mult ) 
                 clash = min([clash1,clash2,clash3]) # this is quick and dirty, and definitely error prone
                 done = clash >= cutoff
                 tries += 1
@@ -156,18 +157,22 @@ def genconf(pol, # universe containing raw polymer conf with bond information
 
                 if tries >= 5 and name in ['P4DM','P4LM','P5DM','P5LM','P4DT','P4LT','P5DT','P5LT','P4DI','P4LI','P5DI','P5LI']:
                     if tries == 5 and verbose : print(f'\n!!! ALERT !!!\n\n Clashes remain when shuffling residue {i} {name} after 5 tries.\n Shuffling additional sidechain dihedrals\n')
-                    conf,clash4 = shuffle(conf, sel=f"resid {i} and name C2A C2B", mult=6 ) # bigger space to reduce chance of clashes
-                    conf,clash5 = shuffle(conf, sel=f"resid {i} and name C3A C3B", mult=6 ) # bigger space to reduce chance of clashes
-                    conf,clash6 = shuffle(conf, sel=f"resid {i} and name C4A C4B", mult=6 ) # bigger space to reduce chance of clashes
+                    conf,clash4 = shuffle(conf, sel=f"resid {i} and name C2A C2B", mult=mult*2 ) # bigger space to reduce chance of clashes
+                    conf,clash5 = shuffle(conf, sel=f"resid {i} and name C3A C3B", mult=mult*2 ) # bigger space to reduce chance of clashes
+                    conf,clash6 = shuffle(conf, sel=f"resid {i} and name C4A C4B", mult=mult*2 ) # bigger space to reduce chance of clashes
                     clash = min([clash,clash4,clash5,clash6])
                     done = clash >= cutoff
 
                 if tries >= 10 and not first:
-                    conf,clash7 = shuffle(conf,sel=f"(resid {i} and name CA) or (resid {prev} and name C)", mult=6) # try shuffling the -C CA bond too
+                    conf,clash7 = shuffle(conf,sel=f"(resid {i} and name CA) or (resid {prev} and name C)", mult=mult*2) # try shuffling the -C CA bond too
                     # generally only do this to resolve clashes; I've found that shuffling both -C to CA and CA to C in every monomer leads to tightly packed structures with many clashes
 
                     clash = min([clash,clash7])
                     done = clash >= cutoff
+
+                if tries == 20:
+                    mult=6 # double dihedral multiplicity to increase search space for conformations without clashes
+
 
                 if tries >= limit: 
                     print(f'\n\n!!!!!!!!!!!\n! WARNING !\n!!!!!!!!!!!\n\n Clashes remain when shuffling residue {i} {name} after {limit} tries.\n Atoms remain within {cutoff} angstroms.\n Continuing with this geometry.\n You may wish to check for overlapping atoms.\n')
@@ -249,7 +254,7 @@ def crudesave(u,fname='out.gro'):
 
 # first, make a polymer with a known monomer composition, but with the monomers in order
 
-def gencomp(mdict):
+def gencomp(mdict,length,fill):
     polycomp = []
 
     if args.count:
@@ -258,14 +263,22 @@ def gencomp(mdict):
             for i in range(rcount):
                 polycomp += [m] # build a list with one of each monomer unit present in the final polymer
 
-    if args.length:
+    elif args.frac:
         for m in middle:
-            rfrac = int(args.length * mdict['frac'][m]) # fraction of total length that is monomer x
+            rfrac = int(length * mdict['frac'][m]) # fraction of total length that is monomer x
             for i in range(rfrac):
                 polycomp += [m] # build a list with one of each monomer unit present in the final polymer
     # then randomise positions of monomers
 
-    poly=random.sample(polycomp,len(polycomp)) 
+    filler = [x for x in fill]
+    while len(polycomp) < length:
+        sel = random.sample(filler,1)
+        polycomp += sel # if the polymer is shorter than the desired length, continue to fill from the given list 
+        filler = [x for x in filler if not x in sel]
+        if len(filler) == 0: 
+            filler = [x for x in fill]
+
+    poly=random.sample(polycomp,length) 
 
     poly[0] = poly[0][:-1] + 'I' # convert first monomer from middle to initiator
 
@@ -275,18 +288,22 @@ def gencomp(mdict):
 
 if __name__ == "__main__":
     import argparse
-    import sys
-
     parser = argparse.ArgumentParser()
     parser.add_argument("--name", default='polymer', help='system name string, used for filenames')
     parser.add_argument("--nconfs", default=3)
-    group=parser.add_mutually_exclusive_group(required=True)
-    group.add_argument('--count', action='store_true') # specifies monomers are given by count
-    group.add_argument('--frac', action='store_true') # specifies monomers are as fractions, requires a total length
-    parser.add_argument('--length', type=int,required='--frac' in sys.argv) # total polymer legnth, only required if --frac is set
-    parser.add_argument("--monomers",type=str,default='monomers.csv',help='path to csv describing monomers, expected columns are \'resname\', \'path\', \'position\', and at least one of \'count\' and \'frac\'') 
+    parser.add_argument('--count', action='store_true') # specifies monomers are given by count
+    parser.add_argument('--frac', action='store_true') # specifies monomers are as fractions, requires a total length
+    parser.add_argument('--length', type=int,required=True) # total polymer legnth
+    parser.add_argument("--monomers",type=str,default='monomers.csv',help='path to csv describing monomers, expected columns are \'resname\', \'path\', \'position\', \'fill\', and at least one of \'count\' and \'frac\'') 
+    parser.add_argument('--shuffles', type=int,default=20) # specifies monomers are given by count
 
     # assumes monomer resnames are four letter codes, with the final letter either M for middle, T for terminator, or I for initiator)
+    # count = explicit count of how many to include
+    # frac = fraction of polymer that is made up of these monomers
+    # path = path to coordinate file with bond information, eg pdb file with connect records
+    # position = initial, middle, terminal
+    # fill = after polymer is extended based on count or frac, gencomp checks if the desired  length is required
+    #           if the polymer has not reached the desired length, extends by choosing randomly from monomers where fill = True
 
     args = parser.parse_args()
 
@@ -299,18 +316,34 @@ if __name__ == "__main__":
         df['count'] = df['count'].astype(int) 
     if args.frac:
         df['frac'] = df['frac'].astype(float) 
-
+    df['fill'] = df['fill'].astype(int).astype(bool)
     mdict = df.to_dict()
 
     # build iterator lists 
 
     monomers = [x for x in mdict['path'].keys()]
-    middle = [x for x in monomers if mdict['position'][x] == 'middle']
 
+    middle = [x for x in monomers if mdict['position'][x] == 'middle']    
+    initial = [x for x in monomers if mdict['position'][x] == 'initial']
+    terminal = [x for x in monomers if mdict['position'][x] == 'terminal']
 
-    poly = gencomp(mdict)
+    middle.sort()
+    initial.sort()
+    terminal.sort()
+
+    monomers = [*initial,*middle,*terminal]
+
+    fill = [x for x in monomers if mdict['fill'][x]]
+
+    poly = gencomp(mdict,args.length,fill)
     # now, use the composition to build the polymer
 
+    print('Polymer composition generated\n')
+    for l in [initial, middle, terminal]:
+        for m in l:
+            print(m,':',len([x for x in poly if x == m]))
+        print()
+        
     for i in tqdm(range(len(poly)),desc='Building initial polymer geometry'):
         #print(poly[i],i)
 
@@ -325,4 +358,4 @@ if __name__ == "__main__":
 
     save(cleanup(pol),f'{fname}_linear.gro')
 
-    genconf(pol,n=nconfs,fname=fname,verbose=False)
+    genconf(pol,n=nconfs,fname=fname,verbose=False,limit=args.shuffles)
